@@ -1,0 +1,13 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Face Recognition Attendance System - FastAPI Backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.128.1",
+    "pydantic>=2.0.0",
+    "supabase>=2.0.0",
+    "opencv-python>=4.8.0",
+    "ffmpeg-python>=0.2.0",
+    "aiofiles>=23.0.0",
+]
