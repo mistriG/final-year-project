@@ -198,6 +198,9 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
   const fetchStudents = useCallback(async () => {
     try {
       const response = await fetch(apiUrl('/students'))
+      if (!response.ok) {
+        throw new Error(`Failed to fetch students (${response.status})`)
+      }
       const data = await response.json()
       setRegisteredStudents(data.students || [])
       
@@ -217,7 +220,9 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
         setLabeledDescriptors(descriptors)
       }
     } catch (err) {
-      console.error('Failed to fetch students:', err)
+      setRegisteredStudents([])
+      setLabeledDescriptors(null)
+      console.warn('Could not fetch students yet, recognition is temporarily unavailable')
     }
   }, [])
 

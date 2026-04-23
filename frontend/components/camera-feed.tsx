@@ -61,7 +61,9 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
           if (data.lateCutoff) setLateCutoff(data.lateCutoff)
         }
       } catch (err) {
-        console.error('Failed to load settings:', err)
+        // Backend may be temporarily unavailable during local startup.
+        // Keep UI usable and avoid noisy runtime error overlays.
+        console.warn('Could not load settings, using defaults')
       } finally {
         setSettingsLoaded(true)
       }
@@ -363,7 +365,7 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
 
           {!isVideoReady ? (
             <Button 
-              onClick={startCamera} 
+              onClick={() => startCamera(selectedDeviceId)}
               disabled={!isModelLoaded}
               className="gap-2"
             >
