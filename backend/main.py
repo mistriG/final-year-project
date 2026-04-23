@@ -333,114 +333,132 @@ test_segment.ts
         if not ffmpeg_path:
             raise fastapi.HTTPException(status_code=500, detail="ffmpeg not found. Install ffmpeg or set FFMPEG_PATH environment variable to its executable path.")
 
-        # First test if RTSP connection works
-        print(f"Testing RTSP connection to {stream.url} using ffmpeg at {ffmpeg_path}...")
-        test_cmd = [
-            ffmpeg_path,
-            "-i", stream.url,
-            "-t", "3",  # Test for 3 seconds
-            "-f", "null",
-            "-"
-        ]
-        
-        test_process = subprocess.Popen(
-            test_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
-            text=True
-        )
-        
-        try:
-            stdout, stderr = test_process.communicate(timeout=10)
-            if test_process.returncode != 0:
-                print(f"RTSP connection test failed. Return code: {test_process.returncode}")
-                print(f"FFmpeg stderr: {stderr}")
-                raise fastapi.HTTPException(
-                    status_code=500, 
-                    detail=f"Cannot connect to RTSP stream: {stream.url}. Error: {stderr}"
-                )
-            print("RTSP connection test successful!")
-        except subprocess.TimeoutExpired:
-            test_process.kill()
-            print("RTSP connection test timed out")
-            raise fastapi.HTTPException(
-                status_code=500,
-                detail=f"RTSP connection timeout: {stream.url}. Please check: 1) Camera is powered on 2) IP address is correct 3) Camera is on same network 4) Port 554 is not blocked"
-            )
-        
-        # Create HLS output directory
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
         stream_id = f"stream_{uuid.uuid4().hex[:8]}"
         output_dir = Path(f"streams/{stream_id}")
         output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # FFmpeg command for RTSP to HLS conversion
-        # Using optimized settings for Imou CCTV and browser compatibility
-        ffmpeg_cmd = [
-            ffmpeg_path,
-            "-rtsp_transport", "tcp",  # Force TCP transport for better reliability
-            "-i", stream.url,
-            "-c:v", "libx264",
-            "-preset", "veryfast",  # Faster encoding for lower latency
-            "-tune", "zerolatency",
-            "-c:a", "aac",
-            "-b:v", "1000k",
-            "-b:a", "128k",
-            "-vf", "scale=1280:720",
-            "-f", "hls",
-            "-hls_time", "2",
-            "-hls_list_size", "3",
-            "-hls_flags", "delete_segments",
-            "-hls_segment_filename", str(output_dir / "segment%03d.ts"),
-            str(output_dir / "playlist.m3u8")
-        ]
-        
-        # Start FFmpeg process
-        # Use Windows-compatible process creation
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
-        print(f"Starting FFmpeg with command: {' '.join(ffmpeg_cmd)}")
-        process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=creationflags,
-            text=True
-        )
-        
-        # Monitor FFmpeg process for startup and errors
-        await asyncio.sleep(3)  # Give FFmpeg more time to initialize
-        if process.poll() is not None:
-            stdout, stderr = process.communicate()
-            print(f"FFmpeg failed to start. Return code: {process.returncode}")
-            print(f"FFmpeg stdout: {stdout}")
-            print(f"FFmpeg stderr: {stderr}")
-            raise fastapi.HTTPException(status_code=500, detail=f"FFmpeg failed: {stderr}")
-        
-        print(f"FFmpeg process started successfully with PID: {process.pid}")
         playlist_path = output_dir / "playlist.m3u8"
 
-        # Wait briefly for FFmpeg to emit the first HLS playlist before returning.
-        # This avoids frontend HLS loader network errors from early 404 responses.
-        playlist_ready = False
-        for _ in range(20):  # up to 10 seconds
+        # Some cameras are unstable with one transport only.
+        # Try TCP first (reliable on many LANs), then UDP fallback.
+        last_error = "Unknown RTSP error"
+        process = None
+        selected_transport = None
+        for transport in ["tcp", "udp"]:
+            print(f"Testing RTSP connection via {transport.upper()} for {stream.url}")
+            test_cmd = [
+                ffmpeg_path,
+                "-rtsp_transport", transport,
+                "-rw_timeout", "10000000",   # 10s network read/write timeout (microseconds)
+                "-i", stream.url,
+                "-t", "4",
+                "-f", "null",
+                "-"
+            ]
+
+            test_process = subprocess.Popen(
+                test_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=creationflags,
+                text=True
+            )
+
+            try:
+                stdout, stderr = test_process.communicate(timeout=15)
+                if test_process.returncode != 0:
+                    last_error = (stderr or stdout or "").strip()
+                    print(f"RTSP test failed via {transport.upper()}: {last_error}")
+                    continue
+            except subprocess.TimeoutExpired:
+                test_process.kill()
+                last_error = f"RTSP test timeout via {transport.upper()}"
+                print(last_error)
+                continue
+
+            selected_transport = transport
+            print(f"RTSP test successful via {transport.upper()}")
+
+            ffmpeg_cmd = [
+                ffmpeg_path,
+                "-rtsp_transport", transport,
+                "-rw_timeout", "10000000",
+                "-fflags", "nobuffer",
+                "-flags", "low_delay",
+                "-analyzeduration", "1000000",
+                "-probesize", "500000",
+                "-i", stream.url,
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-tune", "zerolatency",
+                "-g", "30",
+                "-keyint_min", "30",
+                "-sc_threshold", "0",
+                "-c:a", "aac",
+                "-b:v", "1000k",
+                "-b:a", "128k",
+                "-vf", "scale=1280:720",
+                "-f", "hls",
+                "-hls_time", "2",
+                "-hls_list_size", "4",
+                "-hls_flags", "delete_segments+independent_segments",
+                "-hls_segment_filename", str(output_dir / "segment%03d.ts"),
+                str(playlist_path)
+            ]
+
+            print(f"Starting FFmpeg with {transport.upper()} transport")
+            process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=creationflags,
+                text=True
+            )
+
+            await asyncio.sleep(4)
             if process.poll() is not None:
                 stdout, stderr = process.communicate()
-                raise fastapi.HTTPException(
-                    status_code=500,
-                    detail=f"FFmpeg exited before playlist generation. Error: {stderr or stdout}"
-                )
+                last_error = (stderr or stdout or "").strip()
+                print(f"FFmpeg exited early via {transport.upper()}: {last_error}")
+                process = None
+                continue
 
-            if playlist_path.exists() and playlist_path.stat().st_size > 0:
-                playlist_ready = True
+            playlist_ready = False
+            for _ in range(60):  # up to 30 seconds for slow camera keyframes
+                if process.poll() is not None:
+                    stdout, stderr = process.communicate()
+                    last_error = (stderr or stdout or "").strip()
+                    break
+
+                if playlist_path.exists() and playlist_path.stat().st_size > 0:
+                    playlist_ready = True
+                    break
+
+                await asyncio.sleep(0.5)
+
+            if playlist_ready:
                 break
 
-            await asyncio.sleep(0.5)
+            # Playlist not produced; terminate and retry with next transport.
+            try:
+                if os.name == 'nt':
+                    subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)], check=False)
+                else:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            except Exception:
+                pass
+            process = None
 
-        if not playlist_ready:
+        if not process or process.poll() is not None or not playlist_path.exists():
             raise fastapi.HTTPException(
                 status_code=500,
-                detail="HLS playlist was not generated in time. Check RTSP URL and FFmpeg output."
+                detail=(
+                    "Cannot connect to RTSP stream. Tried TCP and UDP transports. "
+                    f"Last FFmpeg error: {last_error}"
+                )
             )
+
+        print(f"FFmpeg process started successfully with PID: {process.pid} using {selected_transport.upper()}")
         
         # Start a background task to monitor FFmpeg output
         async def monitor_ffmpeg():
