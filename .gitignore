@@ -14,3 +14,13 @@ next.user-config.*
 node_modules
 .next/
 .DS_Store
+
+# Python venv and bytecode
+.venv/
+*.pyc
+__pycache__/
+
+# FFmpeg artifacts
+ffmpeg.zip
+ffmpeg.exe
+ffmpeg/

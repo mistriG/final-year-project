@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { apiUrl } from '@/lib/api'
 import { Camera, CameraOff, Scan, Square, Loader2, ZoomIn, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -44,6 +45,51 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
     startDetection,
     stopDetection,
   } = useFaceDetection(networkCameras)
+
+  // Attendance time settings
+  const [startTime, setStartTime] = useState('09:00')
+  const [lateCutoff, setLateCutoff] = useState('09:00')
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const res = await fetch(apiUrl('/settings'))
+        if (res.ok) {
+          const data = await res.json()
+          if (data.startTime) setStartTime(data.startTime)
+          if (data.lateCutoff) setLateCutoff(data.lateCutoff)
+        }
+      } catch (err) {
+        console.error('Failed to load settings:', err)
+      } finally {
+        setSettingsLoaded(true)
+      }
+    }
+
+    loadSettings()
+  }, [])
+
+  const saveSettings = async () => {
+    try {
+      const res = await fetch(apiUrl('/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startTime, lateCutoff })
+      })
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => 'error')
+        alert('Failed to save settings: ' + txt)
+        return
+      }
+
+      alert('Attendance times saved')
+    } catch (err) {
+      console.error('Failed to save settings:', err)
+      alert('Failed to save settings')
+    }
+  }
 
   // Load network cameras and selected device from localStorage
   useEffect(() => {
@@ -293,6 +339,28 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
 
         {/* Controls */}
         <div className="flex items-center justify-center gap-3 border-t p-4">
+          <div className="flex items-center gap-2 mr-4">
+            <label className="text-sm text-muted-foreground">Start</label>
+            <input
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="h-8 rounded-md border px-2"
+            />
+
+            <label className="text-sm text-muted-foreground">Late</label>
+            <input
+              type="time"
+              value={lateCutoff}
+              onChange={(e) => setLateCutoff(e.target.value)}
+              className="h-8 rounded-md border px-2"
+            />
+
+            <Button size="sm" variant="outline" onClick={saveSettings} className="ml-2">
+              Save
+            </Button>
+          </div>
+
           {!isVideoReady ? (
             <Button 
               onClick={startCamera} 
@@ -342,7 +410,7 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
           <DialogHeader>
             <DialogTitle>Add Network Camera</DialogTitle>
             <DialogDescription>
-              Add an Imou CCTV or other network camera. The system will automatically handle RTSP to HLS conversion for browser compatibility.
+              Add an Imou CCTV or other network camera. The system supports direct streaming and automatic RTSP to HLS conversion for browser compatibility.
             </DialogDescription>
           </DialogHeader>
           
@@ -366,11 +434,15 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
                 onChange={(e) => setCameraUrl(e.target.value)}
               />
               <p className="mt-2 text-xs text-muted-foreground">
-                <strong>Imou CCTV:</strong> RTSP URL from camera settings (e.g., rtsp://admin:password@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0)
+                <strong>Supported formats:</strong>
                 <br />
-                <strong>Other cameras:</strong> RTSP, HTTP, or HTTPS streaming URLs are supported.
+                • <strong>RTSP:</strong> rtsp://admin:password@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0 (converted via backend)
                 <br />
-                The system automatically converts streams for browser compatibility.
+                • <strong>HTTP/MJPEG:</strong> http://192.168.1.100/video.mjpg (direct streaming)
+                <br />
+                • <strong>HLS:</strong> http://192.168.1.100/stream.m3u8 (direct streaming)
+                <br />
+                Direct HTTP/HLS streams load faster without backend processing.
               </p>
             </div>
           </div>

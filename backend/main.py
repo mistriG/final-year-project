@@ -8,6 +8,7 @@ import asyncio
 import subprocess
 import os
 import signal
+import shutil
 from pathlib import Path
 
 app = fastapi.FastAPI()
@@ -75,6 +76,12 @@ attendance_db: dict[str, dict] = {}
 streaming_processes: dict[str, subprocess.Popen] = {}
 stream_configs: dict[str, dict] = {}
 
+# Attendance settings (in-memory). Times are in 24-hour HH:MM format.
+attendance_settings: dict = {
+    "start_time": "09:00",
+    "late_cutoff": "09:00",
+}
+
 class StreamStart(BaseModel):
     name: str
     url: str
@@ -105,6 +112,11 @@ class AttendanceRecord(BaseModel):
 class MarkAttendance(BaseModel):
     studentDbId: str
     studentName: str
+
+
+class SettingsUpdate(BaseModel):
+    startTime: Optional[str] = None
+    lateCutoff: Optional[str] = None
 
 
 @app.get("/health")
@@ -189,9 +201,19 @@ async def mark_attendance(record: MarkAttendance):
         if att["studentDbId"] == record.studentDbId and att["date"] == today:
             return {"message": "Already marked", "attendance": att}
     
-    # Determine status based on time (9:00 AM cutoff)
-    hour = now.hour
-    status = "present" if hour < 9 else "late"
+    # Determine status based on configured late cutoff (HH:MM)
+    def _parse_hm(s: str) -> int:
+        try:
+            parts = s.split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+        except Exception:
+            return 9 * 60
+
+    now_minutes = now.hour * 60 + now.minute
+    cutoff = attendance_settings.get("late_cutoff", "09:00")
+    cutoff_minutes = _parse_hm(cutoff)
+    # If current time is greater than cutoff, mark as late; otherwise present
+    status = "late" if now_minutes > cutoff_minutes else "present"
     
     new_id = str(uuid.uuid4())
     new_attendance = {
@@ -229,6 +251,28 @@ async def get_attendance_stats():
         "late": late_count,
         "absent": absent_count,
         "date": today,
+    }
+
+
+@app.get("/settings")
+async def get_settings():
+    # Return settings in camelCase for frontend convenience
+    return {
+        "startTime": attendance_settings.get("start_time", "09:00"),
+        "lateCutoff": attendance_settings.get("late_cutoff", "09:00"),
+    }
+
+
+@app.post("/settings")
+async def update_settings(settings: SettingsUpdate):
+    if settings.startTime is not None:
+        # validate simple format HH:MM
+        attendance_settings["start_time"] = settings.startTime
+    if settings.lateCutoff is not None:
+        attendance_settings["late_cutoff"] = settings.lateCutoff
+    return {
+        "startTime": attendance_settings.get("start_time"),
+        "lateCutoff": attendance_settings.get("late_cutoff"),
     }
 
 
@@ -274,10 +318,25 @@ test_segment.ts
                 "name": stream.name
             }
         
+        # Resolve ffmpeg executable: prefer FFMPEG_PATH env var, then PATH, then fallback
+        def find_ffmpeg():
+            env_path = os.environ.get("FFMPEG_PATH")
+            if env_path and Path(env_path).exists():
+                return str(env_path)
+            which = shutil.which("ffmpeg")
+            if which:
+                return which
+            default = r"C:\ffmpeg-8.1-essentials_build\bin\ffmpeg.exe"
+            return default if Path(default).exists() else None
+
+        ffmpeg_path = find_ffmpeg()
+        if not ffmpeg_path:
+            raise fastapi.HTTPException(status_code=500, detail="ffmpeg not found. Install ffmpeg or set FFMPEG_PATH environment variable to its executable path.")
+
         # First test if RTSP connection works
-        print(f"Testing RTSP connection to {stream.url}...")
+        print(f"Testing RTSP connection to {stream.url} using ffmpeg at {ffmpeg_path}...")
         test_cmd = [
-            r"C:\ffmpeg-8.1-essentials_build\bin\ffmpeg.exe",
+            ffmpeg_path,
             "-i", stream.url,
             "-t", "3",  # Test for 3 seconds
             "-f", "null",
@@ -317,7 +376,6 @@ test_segment.ts
         
         # FFmpeg command for RTSP to HLS conversion
         # Using optimized settings for Imou CCTV and browser compatibility
-        ffmpeg_path = r"C:\ffmpeg-8.1-essentials_build\bin\ffmpeg.exe"
         ffmpeg_cmd = [
             ffmpeg_path,
             "-rtsp_transport", "tcp",  # Force TCP transport for better reliability
