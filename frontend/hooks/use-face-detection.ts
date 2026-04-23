@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import * as faceapi from 'face-api.js'
 import { apiUrl } from '@/lib/api'
 import Hls from 'hls.js'
+import { streamManager, StreamOptions, StreamStatus } from '@/lib/stream-manager'
 
 interface DetectedFace {
   id: string
@@ -25,10 +26,27 @@ interface Student {
   faceDescriptor: number[] | null
 }
 
-interface NetworkCamera {
+export interface NetworkCamera {
   id: string
   name: string
   url: string
+  username?: string
+  password?: string
+  transport?: 'tcp' | 'udp' | 'auto'
+  timeout?: number
+  format?: 'rtsp' | 'http' | 'hls' | 'mjpeg' | 'webrtc'
+  status?: 'connected' | 'disconnected' | 'error'
+  lastError?: string
+}
+
+interface StreamConfig {
+  id: string
+  name: string
+  url: string
+  type: 'direct' | 'rtsp-proxy' | 'webrtc'
+  isActive: boolean
+  quality?: 'low' | 'medium' | 'high'
+  latency?: 'low' | 'normal' | 'high'
 }
 
 // Desired face size as percentage of frame height (40% of frame)
@@ -56,6 +74,13 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
   
   // Network cameras (RTSP, HTTP, etc.)
   const networkCameraRef = useRef<NetworkCamera | null>(null)
+  
+  // Stream management
+  const [streamConfig, setStreamConfig] = useState<StreamConfig | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle')
+  const [retryCount, setRetryCount] = useState(0)
+  const maxRetries = 3
+  const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null)
   
   // Auto-zoom and centering state
   const [currentZoom, setCurrentZoom] = useState(1.0)
@@ -232,164 +257,53 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
     }
   }, [isModelLoaded, fetchStudents])
 
-  // Start webcam or network camera
+  // Enhanced camera start with stream manager
   const startCamera = useCallback(async (deviceId?: string) => {
     try {
+      setError(null)
+      setConnectionStatus('connecting')
+      
       // Check if it's a network camera
       const networkCam = networkCameras.find(cam => cam.id === deviceId)
       
-      if (networkCam) {
-        // Handle network camera stream
-        if (videoRef.current) {
-          // Clear any existing webcam stream first
-          videoRef.current.srcObject = null
+      if (networkCam && videoRef.current) {
+        // Handle network camera with enhanced stream manager
+        console.log('Starting enhanced network stream:', networkCam.name)
+        
+        // Clear any existing stream
+        await streamManager.detach()
+        
+        // Set up status callback
+        streamManager.onStatusChange((status: StreamStatus) => {
+          setStreamStatus(status)
           
-          // Check if this is a direct stream URL (HTTP/MJPEG or HLS)
-          const isDirectStream = networkCam.url.startsWith('http://') || networkCam.url.startsWith('https://')
-          const isHLSStream = networkCam.url.includes('.m3u8') || networkCam.url.includes('m3u8')
-          
-          if (isDirectStream && !networkCam.url.includes('rtsp://')) {
-            // Handle direct HTTP/MJPEG or HLS streams
-            console.log('Loading direct network stream:', networkCam.url)
-            
-            if (isHLSStream) {
-              // Direct HLS stream
-              if (Hls.isSupported()) {
-                const hls = new Hls({
-                  enableWorker: true,
-                  lowLatencyMode: true,
-                  backBufferLength: 90
-                })
-                
-                hls.loadSource(networkCam.url)
-                hls.attachMedia(videoRef.current)
-                
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                  console.log('Direct HLS stream loaded successfully:', networkCam.name)
-                  videoRef.current!.play()
-                  setIsVideoReady(true)
-                  setError(null)
-                  networkCameraRef.current = networkCam
-                })
-                
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                  console.error('Direct HLS error:', data)
-                  const errorMsg = data.details || 'Unknown HLS error'
-                  setError(`Failed to load ${networkCam.name}: ${errorMsg}`)
-                })
-                
-                // Store HLS instance for cleanup
-                ;(videoRef.current as any).hlsInstance = hls
-                
-              } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-                // Native HLS support (Safari)
-                videoRef.current.src = networkCam.url
-                
-                videoRef.current.onloadedmetadata = async () => {
-                  console.log('Direct HLS stream loaded successfully:', networkCam.name)
-                  await videoRef.current!.play()
-                  setIsVideoReady(true)
-                  setError(null)
-                  networkCameraRef.current = networkCam
-                }
-              } else {
-                throw new Error('HLS not supported in this browser')
-              }
-            } else {
-              // Direct HTTP/MJPEG stream
-              videoRef.current.src = networkCam.url
-              videoRef.current.crossOrigin = 'anonymous'
-              
-              videoRef.current.onloadedmetadata = async () => {
-                console.log('Direct HTTP stream loaded successfully:', networkCam.name)
-                await videoRef.current!.play()
-                setIsVideoReady(true)
-                setError(null)
-                networkCameraRef.current = networkCam
-              }
-            }
-            
-            videoRef.current.onerror = (e) => {
-              console.error('Failed to load direct network stream:', networkCam.url, e)
-              setError(`Failed to load ${networkCam.name}. Please check the stream URL and format.`)
-            }
-            
-          } else {
-            // Handle RTSP streams via backend conversion (existing logic)
-            try {
-              // Start stream via backend
-              const response = await fetch(apiUrl('/stream/start'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  name: networkCam.name,
-                  url: networkCam.url
-                })
-              })
-              
-              if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}))
-                const errorMsg = errorData.detail || 'Failed to start stream'
-                throw new Error(errorMsg)
-              }
-              
-              const streamData = await response.json()
-              const streamUrl = apiUrl(streamData.streamUrl)
-              
-              // Use HLS.js for HLS streaming
-              if (Hls.isSupported()) {
-                const hls = new Hls({
-                  enableWorker: true,
-                  lowLatencyMode: true,
-                  backBufferLength: 90
-                })
-                
-                hls.loadSource(streamUrl)
-                hls.attachMedia(videoRef.current)
-                
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                  console.log('Network camera loaded successfully:', networkCam.name)
-                  videoRef.current!.play()
-                  setIsVideoReady(true)
-                  setError(null)
-                  networkCameraRef.current = networkCam
-                })
-                
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                  console.error('HLS error:', data)
-                  const errorMsg = data.details || 'Unknown HLS error'
-                  setError(`Failed to load ${networkCam.name}: ${errorMsg}. Check camera connection and RTSP URL.`)
-                })
-                
-                // Store HLS instance for cleanup
-                ;(videoRef.current as any).hlsInstance = hls
-                
-              } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-                // Native HLS support (Safari)
-                videoRef.current.src = streamUrl
-                
-                videoRef.current.onloadedmetadata = async () => {
-                  console.log('Network camera loaded successfully:', networkCam.name)
-                  await videoRef.current!.play()
-                  setIsVideoReady(true)
-                  setError(null)
-                  networkCameraRef.current = networkCam
-                }
-              } else {
-                throw new Error('HLS not supported in this browser')
-              }
-              
-              videoRef.current.onerror = (e) => {
-                console.error('Failed to load network camera stream:', streamUrl, e)
-                setError(`Failed to load ${networkCam.name}. Please check your camera connection and URL.`)
-              }
-              
-            } catch (error) {
-              console.error('Failed to start network stream:', error)
-              setError(`Failed to start stream for ${networkCam.name}. Please check the camera URL and connection.`)
-            }
+          if (status.isConnected) {
+            setConnectionStatus('connected')
+            setIsVideoReady(true)
+            setError(null)
+            networkCameraRef.current = networkCam
+          } else if (status.error) {
+            setConnectionStatus('error')
+            setError(`${networkCam.name}: ${status.error}`)
           }
+        })
+        
+        // Build stream options
+        const streamOptions: StreamOptions = {
+          url: networkCam.url,
+          format: networkCam.format || 'auto',
+          username: networkCam.username,
+          password: networkCam.password,
+          transport: networkCam.transport || 'auto',
+          timeout: networkCam.timeout || 10000,
+          quality: 'medium',
+          latency: 'low',
+          retries: 3
         }
+        
+        // Start stream
+        await streamManager.attach(videoRef.current, streamOptions)
+        
       } else {
         // Handle local USB/webcam device
         let constraints: MediaStreamConstraints = {
@@ -412,11 +326,13 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
           const stream = await navigator.mediaDevices.getUserMedia(constraints)
           
           if (videoRef.current) {
-            // Clear any existing network camera src
+            // Clear any existing network camera stream
+            await streamManager.detach()
             videoRef.current.src = ''
             videoRef.current.srcObject = stream
             await videoRef.current.play()
             setIsVideoReady(true)
+            setConnectionStatus('connected')
             setError(null)
             networkCameraRef.current = null
           }
@@ -436,11 +352,12 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
             const stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints)
             
             if (videoRef.current) {
-              // Clear any existing network camera src
+              await streamManager.detach()
               videoRef.current.src = ''
               videoRef.current.srcObject = stream
               await videoRef.current.play()
               setIsVideoReady(true)
+              setConnectionStatus('connected')
               setError(null)
               networkCameraRef.current = null
             }
@@ -451,18 +368,15 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
       }
     } catch (err) {
       console.error('Failed to start camera:', err)
+      setConnectionStatus('error')
       setError('Camera access denied or no camera available. Please enable camera permissions.')
     }
   }, [networkCameras])
 
-  // Stop webcam
-  const stopCamera = useCallback(() => {
-    // Clean up HLS instance if exists
-    if (videoRef.current && (videoRef.current as any).hlsInstance) {
-      const hls = (videoRef.current as any).hlsInstance
-      hls.destroy()
-      ;(videoRef.current as any).hlsInstance = null
-    }
+  // Enhanced camera stop with stream manager
+  const stopCamera = useCallback(async () => {
+    // Clean up stream manager
+    await streamManager.detach()
     
     // Clean up webcam stream
     if (videoRef.current?.srcObject) {
@@ -480,6 +394,8 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
     setIsVideoReady(false)
     setIsDetecting(false)
     setDetectedFaces([])
+    setConnectionStatus('idle')
+    setStreamStatus(null)
     setCurrentZoom(1.0)
     setPanOffset({ x: 0, y: 0 })
     targetZoomRef.current = 1.0
@@ -698,6 +614,8 @@ export function useFaceDetection(networkCameras: NetworkCamera[] = []) {
     selectedDeviceId,
     setSelectedDeviceId,
     networkCameras,
+    connectionStatus,
+    streamStatus,
     startCamera,
     stopCamera,
     startDetection,

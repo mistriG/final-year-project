@@ -85,6 +85,11 @@ attendance_settings: dict = {
 class StreamStart(BaseModel):
     name: str
     url: str
+    transport: Optional[str] = "auto"
+    timeout: Optional[int] = 10000
+    quality: Optional[str] = "medium"
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 class StudentCreate(BaseModel):
     name: str
@@ -277,13 +282,24 @@ async def update_settings(settings: SettingsUpdate):
 
 
 # Streaming endpoints
-@app.post("/stream/start")
+@app.post("/api/stream/start")
 async def start_stream(stream: StreamStart):
-    """Start RTSP to HLS conversion for network camera"""
-    print(f"Starting stream for {stream.name} with URL: {stream.url}")
+    """Enhanced RTSP to HLS conversion with better error handling"""
+    print(f"Starting enhanced stream for {stream.name} with URL: {stream.url}")
     try:
+        # Build authenticated URL if credentials provided
+        stream_url = stream.url
+        if stream.username and stream.password:
+            # Parse URL and add credentials
+            if stream_url.startswith('rtsp://'):
+                stream_url = stream_url.replace('rtsp://', f'rtsp://{stream.username}:{stream.password}@')
+            elif stream_url.startswith('http://'):
+                stream_url = stream_url.replace('http://', f'http://{stream.username}:{stream.password}@')
+            elif stream_url.startswith('https://'):
+                stream_url = stream_url.replace('https://', f'https://{stream.username}:{stream.password}@')
+
         # Check if this is a test stream
-        if stream.url.startswith("test://"):
+        if stream_url.startswith("test://"):
             # Return a mock stream for testing purposes
             stream_id = f"stream_{uuid.uuid4().hex[:8]}"
             output_dir = Path(f"streams/{stream_id}")
@@ -507,8 +523,10 @@ test_segment.ts
         
         return {
             "streamId": stream_id,
-            "streamUrl": f"/streams/{stream_id}/playlist.m3u8",
-            "name": stream.name
+            "streamUrl": f"/api/streams/{stream_id}/playlist.m3u8",
+            "name": stream.name,
+            "transport": selected_transport,
+            "quality": stream.quality
         }
         
     except fastapi.HTTPException:

@@ -9,13 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useFaceDetection } from '@/hooks/use-face-detection'
-
-interface NetworkCamera {
-  id: string
-  name: string
-  url: string
-}
+import { useFaceDetection, NetworkCamera } from '@/hooks/use-face-detection'
 
 interface CameraFeedProps {
   onFaceDetected?: (studentId: string, studentName: string) => void
@@ -26,6 +20,10 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
   const [showAddCamera, setShowAddCamera] = useState(false)
   const [cameraName, setCameraName] = useState('')
   const [cameraUrl, setCameraUrl] = useState('')
+  const [cameraUsername, setCameraUsername] = useState('')
+  const [cameraPassword, setCameraPassword] = useState('')
+  const [cameraTransport, setCameraTransport] = useState<'tcp' | 'udp' | 'auto'>('auto')
+  const [cameraFormat, setCameraFormat] = useState<'auto' | 'rtsp' | 'http' | 'hls' | 'mjpeg'>('auto')
   const [networkCameras, setNetworkCameras] = useState<NetworkCamera[]>([])
   const {
     videoRef,
@@ -42,6 +40,8 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
     setSelectedDeviceId,
     startCamera,
     stopCamera,
+    connectionStatus,
+    streamStatus,
     startDetection,
     stopDetection,
   } = useFaceDetection(networkCameras)
@@ -128,16 +128,26 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
   // Handle add network camera
   const handleAddNetworkCamera = () => {
     if (cameraName.trim() && cameraUrl.trim()) {
-      const newCamera = {
+      const newCamera: NetworkCamera = {
         id: `network_${Date.now()}`,
         name: cameraName,
         url: cameraUrl,
+        username: cameraUsername.trim() || undefined,
+        password: cameraPassword.trim() || undefined,
+        transport: cameraTransport,
+        format: cameraFormat === 'auto' ? undefined : cameraFormat,
+        timeout: 10000,
+        status: 'disconnected'
       }
       const updatedCameras = [...networkCameras, newCamera]
       setNetworkCameras(updatedCameras)
       localStorage.setItem('networkCameras', JSON.stringify(updatedCameras))
       setCameraName('')
       setCameraUrl('')
+      setCameraUsername('')
+      setCameraPassword('')
+      setCameraTransport('auto')
+      setCameraFormat('auto')
       setShowAddCamera(false)
       
       // Auto-select the new camera
@@ -428,24 +438,93 @@ export function CameraFeed({ onFaceDetected }: CameraFeedProps) {
             </div>
             
             <div>
+              <Label htmlFor="camera-format">Stream Format</Label>
+              <Select value={cameraFormat} onValueChange={(value: 'auto' | 'rtsp' | 'http' | 'hls' | 'mjpeg') => setCameraFormat(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto-detect</SelectItem>
+                  <SelectItem value="rtsp">RTSP (requires backend conversion)</SelectItem>
+                  <SelectItem value="http">HTTP/MJPEG (direct)</SelectItem>
+                  <SelectItem value="hls">HLS (direct)</SelectItem>
+                  <SelectItem value="mjpeg">MJPEG (direct)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
               <Label htmlFor="camera-url">Stream URL</Label>
               <Input
                 id="camera-url"
-                placeholder="rtsp://username:password@192.168.1.100:554/stream"
+                placeholder={cameraFormat === 'rtsp' ? "rtsp://192.168.1.100:554/cam/realmonitor?channel=1&subtype=0" : 
+                         cameraFormat === 'hls' ? "http://192.168.1.100/stream.m3u8" :
+                         cameraFormat === 'mjpeg' ? "http://192.168.1.100/video.mjpg" :
+                         "http://192.168.1.100/stream"}
                 value={cameraUrl}
                 onChange={(e) => setCameraUrl(e.target.value)}
               />
-              <p className="mt-2 text-xs text-muted-foreground">
-                <strong>Supported formats:</strong>
-                <br />
-                • <strong>RTSP:</strong> rtsp://admin:password@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0 (converted via backend)
-                <br />
-                • <strong>HTTP/MJPEG:</strong> http://192.168.1.100/video.mjpg (direct streaming)
-                <br />
-                • <strong>HLS:</strong> http://192.168.1.100/stream.m3u8 (direct streaming)
-                <br />
-                Direct HTTP/HLS streams load faster without backend processing.
-              </p>
+            </div>
+            
+            {(cameraFormat === 'rtsp' || cameraFormat === 'http') && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="camera-username">Username (optional)</Label>
+                  <Input
+                    id="camera-username"
+                    placeholder="admin"
+                    value={cameraUsername}
+                    onChange={(e) => setCameraUsername(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="camera-password">Password (optional)</Label>
+                  <Input
+                    id="camera-password"
+                    type="password"
+                    placeholder="password"
+                    value={cameraPassword}
+                    onChange={(e) => setCameraPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+            
+            {cameraFormat === 'rtsp' && (
+              <div>
+                <Label htmlFor="camera-transport">Transport Protocol</Label>
+                <Select value={cameraTransport} onValueChange={(value: 'tcp' | 'udp' | 'auto') => setCameraTransport(value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (try TCP first, then UDP)</SelectItem>
+                    <SelectItem value="tcp">TCP (more reliable)</SelectItem>
+                    <SelectItem value="udp">UDP (lower latency)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            <div className="text-xs text-muted-foreground">
+              <strong>Enhanced Streaming Features:</strong>
+              <br />
+              • <strong>Auto-retry:</strong> Automatically reconnects on connection failure
+              <br />
+              • <strong>Authentication:</strong> Built-in support for username/password
+              <br />
+              • <strong>Format detection:</strong> Automatically detects stream type
+              <br />
+              • <strong>Error recovery:</strong> VLC-like connection handling
+              <br />
+              <br />
+              <strong>URL Examples:</strong>
+              <br />
+              • RTSP: rtsp://admin:password@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0
+              <br />
+              • HTTP/MJPEG: http://192.168.1.100/video.mjpg
+              <br />
+              • HLS: http://192.168.1.100/stream.m3u8
             </div>
           </div>
 

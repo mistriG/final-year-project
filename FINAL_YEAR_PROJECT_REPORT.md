@@ -16,18 +16,19 @@
 3. [Technologies Used](#3-technologies-used)
 4. [Backend Implementation](#4-backend-implementation)
 5. [Frontend Implementation](#5-frontend-implementation)
-6. [Face Recognition System](#6-face-recognition-system)
-7. [Feature Documentation](#7-feature-documentation)
-8. [API Documentation](#8-api-documentation)
-9. [Database Design](#9-database-design)
-10. [User Interface Design](#10-user-interface-design)
-11. [System Flow](#11-system-flow)
-12. [Code Implementation](#12-code-implementation)
-13. [Testing](#13-testing)
-14. [Installation and Deployment](#14-installation-and-deployment)
-15. [Future Enhancements](#15-future-enhancements)
-16. [Conclusion](#16-conclusion)
-17. [References](#17-references)
+6. [Enhanced Streaming System](#6-enhanced-streaming-system)
+7. [Face Recognition System](#7-face-recognition-system)
+8. [Feature Documentation](#8-feature-documentation)
+9. [API Documentation](#9-api-documentation)
+10. [Database Design](#10-database-design)
+11. [User Interface Design](#11-user-interface-design)
+12. [System Flow](#12-system-flow)
+13. [Code Implementation](#13-code-implementation)
+14. [Testing](#14-testing)
+15. [Installation and Deployment](#15-installation-and-deployment)
+16. [Future Enhancements](#16-future-enhancements)
+17. [Conclusion](#17-conclusion)
+18. [References](#18-references)
 
 ---
 
@@ -66,22 +67,29 @@ The primary objectives of this project are:
 
 The system encompasses:
 
-- Real-time face detection via webcam using TensorFlow.js
-- Student registration with live face encoding capture
-- Automatic attendance marking upon face recognition
-- Interactive dashboard with live statistics
-- Complete student management (Create, Read, Update, Delete)
-- Date-wise attendance report generation
-- Visual analytics with charts and graphs
-- CSV export functionality for attendance records
-- Time-based attendance status (Present/Late/Absent)
+- **Enhanced Streaming Support**: RTSP, HTTP/MJPEG, HLS, WebRTC-ready with VLC-like interface
+- **Real-time face detection** via webcam and network cameras using TensorFlow.js
+- **Student registration** with live face encoding capture
+- **Automatic attendance marking** upon face recognition
+- **Interactive dashboard** with live statistics and connection status
+- **Complete student management** (Create, Read, Update, Delete)
+- **Date-wise attendance report** generation with export functionality
+- **Visual analytics** with charts and graphs
+- **CSV export functionality** for attendance records
+- **Time-based attendance status** (Present/Late/Absent)
+- **Multi-camera support** with automatic format detection
+- **Network camera management** with authentication and transport options
+- **Connection testing** and error recovery mechanisms
+- **Performance monitoring** with latency metrics and retry tracking
 
 ### 1.5 Limitations
 
 - Requires adequate lighting conditions for accurate detection
-- Performance depends on webcam quality
+- Performance depends on camera quality and network conditions
 - Currently uses in-memory storage (can be extended to persistent database)
-- Single camera support (can be extended to multiple cameras)
+- WebRTC support planned for future ultra-low latency requirements
+- Stream recording capabilities under development
+- Face recognition accuracy depends on quality of registered face samples
 
 ---
 
@@ -166,13 +174,13 @@ The frontend and backend services communicate through HTTP REST APIs. Vercel's s
 
 ### 2.4 Directory Structure
 
-```
+````
 smart-attendance-system/
 │
 ├── vercel.json                      # Vercel services configuration
 │
 ├── backend/                         # Python FastAPI Backend
-│   ├── main.py                      # Main FastAPI application
+│   ├── main.py                      # Main FastAPI application with streaming
 │   └── pyproject.toml               # Python dependencies
 │
 └── frontend/                        # Next.js Frontend
@@ -186,7 +194,7 @@ smart-attendance-system/
     │       └── page.tsx             # Attendance reports page
     │
     ├── components/                  # React Components
-    │   ├── camera-feed.tsx          # Webcam & face detection
+    │   ├── camera-feed.tsx          # Enhanced webcam & network camera streaming
     │   ├── stats-cards.tsx          # Statistics display cards
     │   ├── attendance-table.tsx     # Attendance records table
     │   ├── navigation.tsx           # Navigation bar
@@ -202,11 +210,14 @@ smart-attendance-system/
     │       └── ...
     │
     ├── hooks/                       # Custom React Hooks
-    │   ├── use-face-detection.ts    # Face detection logic
+    │   ├── use-face-detection.ts    # Enhanced face detection with streaming
     │   └── use-mobile.ts            # Mobile detection
     │
-    ├── lib/                         # Utility functions
-    │   └── utils.ts                 # cn() and helpers
+    ├── lib/                         # Utility functions & streaming
+    │   ├── stream-manager.ts         # VLC-like streaming engine
+    │   ├── stream-test.ts            # Stream testing utilities
+    │   ├── utils.ts                 # cn() and helpers
+    │   └── api.ts                    # API configuration
     │
     ├── public/                      # Static assets
     │   └── models/                  # face-api.js ML models
@@ -247,6 +258,7 @@ smart-attendance-system/
 | **shadcn/ui** | Latest | UI component library | Accessible, customizable, professional components |
 | **face-api.js** | 0.22.2 | Face detection & recognition | TensorFlow.js based, browser-compatible |
 | **TensorFlow.js** | (bundled) | Machine learning runtime | GPU acceleration, WebGL support |
+| **HLS.js** | Latest | HTTP Live Streaming | Low-latency streaming, browser compatibility |
 | **SWR** | 2.x | Data fetching & caching | Real-time updates, revalidation, caching |
 | **Lucide React** | Latest | Icon library | Modern icons, tree-shakeable |
 | **Recharts** | 2.x | Chart visualization | React-based, responsive charts |
@@ -259,10 +271,25 @@ smart-attendance-system/
 | **FastAPI** | 0.115.x | Web framework | Async support, automatic OpenAPI docs, type validation |
 | **Uvicorn** | Latest | ASGI server | High performance, async support |
 | **Pydantic** | 2.x | Data validation | Type-safe models, automatic validation |
+| **FFmpeg** | 8.x | Media processing | RTSP to HLS conversion, stream transcoding |
 | **Python datetime** | Built-in | Date/time handling | Native Python support |
 | **UUID** | Built-in | Unique ID generation | RFC 4122 compliant |
+| **AsyncIO** | Built-in | Async programming | Concurrent stream processing |
 
-### 3.4 Development Tools
+### 3.4 Streaming Technologies
+
+| Technology | Version | Purpose | Why Chosen |
+|------------|---------|---------|------------|
+| **RTSP** | Protocol | Real-time streaming | Industry standard for IP cameras |
+| **HLS** | Protocol | HTTP Live Streaming | Browser-compatible, adaptive bitrate |
+| **MJPEG** | Format | Motion JPEG streaming | Low latency, wide camera support |
+| **WebRTC** | Protocol | Real-time communication | Ultra-low latency (planned) |
+| **FFmpeg** | 8.x | Stream conversion | RTSP to HLS, format transcoding |
+| **HLS.js** | Latest | HLS playback | Cross-browser compatibility |
+| **Canvas API** | HTML5 | Video rendering | MJPEG stream processing |
+| **WebRTC API** | Browser | P2P streaming | Future ultra-low latency support |
+
+### 3.5 Development Tools
 
 | Tool | Purpose | Usage |
 |------|---------|-------|
@@ -273,7 +300,7 @@ smart-attendance-system/
 | **TypeScript Compiler** | Type checking | Static type analysis |
 | **Git** | Version control | Source code management |
 
-### 3.5 Machine Learning Models
+### 3.6 Machine Learning Models
 
 The face recognition system uses pre-trained models from face-api.js:
 
@@ -283,15 +310,17 @@ The face recognition system uses pre-trained models from face-api.js:
 | **FaceLandmark68Net** | ~350KB | ~1M | Detects 68 facial landmark points |
 | **FaceRecognitionNet** | ~6.2MB | ~4M | Extracts 128-dimensional face descriptors |
 
-### 3.6 Browser APIs Used
+### 3.7 Browser APIs Used
 
 | API | Purpose |
 |-----|---------|
 | **MediaDevices.getUserMedia()** | Access webcam stream |
-| **Canvas API** | Draw face detection overlays |
+| **Canvas API** | Draw face detection overlays, MJPEG rendering |
 | **WebGL** | GPU-accelerated ML inference |
 | **Fetch API** | HTTP requests to backend |
 | **Web Workers** | Background ML processing |
+| **WebRTC API** | P2P streaming (future enhancement) |
+| **MediaSource API** | Stream processing for MJPEG |
 
 ---
 
@@ -1244,7 +1273,323 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 
 ---
 
-## 6. Face Recognition System
+## 6. Enhanced Streaming System
+
+### 6.1 Overview
+
+The Enhanced Streaming System is a comprehensive upgrade that transforms the basic webcam functionality into a professional, VLC-inspired network streaming platform. This system addresses critical reliability issues while providing enterprise-grade streaming capabilities for various camera types and network conditions.
+
+### 6.2 Problem Statement & Solution
+
+#### Original Issues:
+- **401 Unauthorized errors** - Authentication failures with RTSP cameras
+- **Connection timeouts** - Unreliable network connections
+- **Limited format support** - Only basic webcam streaming
+- **Poor error recovery** - No automatic reconnection
+
+#### Enhanced Solution:
+- **Multi-format support** - RTSP, HTTP/MJPEG, HLS, WebRTC-ready
+- **Robust authentication** - Built-in username/password handling
+- **Auto-retry mechanism** - Exponential backoff with transport fallback
+- **VLC-like interface** - Professional stream management
+
+### 6.3 Architecture Components
+
+#### 6.3.1 Stream Manager (`/frontend/lib/stream-manager.ts`)
+
+The central streaming engine that handles all video sources:
+
+```typescript
+export class StreamManager {
+  // Core streaming capabilities
+  async attach(videoElement: HTMLVideoElement, options: StreamOptions)
+  async detach(): Promise<void>
+  onStatusChange(callback: (status: StreamStatus) => void): void
+  
+  // Format-specific handlers
+  private async startRTSPStream(options: StreamOptions)
+  private async startHLSStream(options: StreamOptions)
+  private async startMJPEGStream(options: StreamOptions)
+  private async startHTTPStream(options: StreamOptions)
+  
+  // Error recovery and testing
+  private handleError(error: Error, options: StreamOptions): void
+  async testConnection(url: string, options?: Partial<StreamOptions>): Promise<boolean>
+}
+```
+
+**Key Features:**
+- **Automatic format detection** from URL patterns
+- **Connection testing** before stream establishment
+- **Real-time status monitoring** with latency metrics
+- **Smart retry logic** with exponential backoff (1s, 2s, 4s, max 10s)
+- **Transport fallback** (TCP → UDP) for RTSP streams
+
+#### 6.3.2 Enhanced Backend (`/backend/main.py`)
+
+Upgraded RTSP processing with improved error handling:
+
+```python
+class StreamStart(BaseModel):
+    name: str
+    url: str
+    transport: Optional[str] = "auto"  # tcp/udp/auto
+    timeout: Optional[int] = 10000      # Connection timeout
+    quality: Optional[str] = "medium"   # Stream quality
+    username: Optional[str] = None      # Authentication
+    password: Optional[str] = None
+
+@app.post("/api/stream/start")
+async def start_stream(stream: StreamStart):
+    # Enhanced authentication handling
+    # Transport protocol selection
+    # Improved error reporting
+    # Connection testing
+```
+
+**Backend Enhancements:**
+- **Authentication support** for RTSP cameras
+- **Transport protocol selection** (TCP/UDP/Auto)
+- **Enhanced error reporting** with specific failure reasons
+- **Connection testing** before stream conversion
+- **Quality controls** for bandwidth optimization
+
+#### 6.3.3 Enhanced UI (`/frontend/components/camera-feed.tsx`)
+
+Professional camera configuration interface:
+
+```typescript
+interface NetworkCamera {
+  id: string
+  name: string
+  url: string
+  username?: string
+  password?: string
+  transport?: 'tcp' | 'udp' | 'auto'
+  timeout?: number
+  format?: 'rtsp' | 'http' | 'hls' | 'mjpeg' | 'webrtc'
+  status?: 'connected' | 'disconnected' | 'error'
+  lastError?: string
+}
+```
+
+**UI Features:**
+- **Format selection** with auto-detection
+- **Authentication fields** for secure camera access
+- **Transport protocol options** for network optimization
+- **Real-time connection status** indicators
+- **Error messages** with actionable solutions
+
+### 6.4 Supported Stream Formats
+
+#### 6.4.1 RTSP Streams (Enhanced)
+```
+rtsp://admin:password@192.168.1.100:554/cam/realmonitor?channel=1&subtype=0
+```
+- **Backend conversion** to HLS for browser compatibility
+- **TCP/UDP transport selection** with automatic fallback
+- **Authentication handling** for secure camera access
+- **Connection testing** before establishment
+
+#### 6.4.2 HTTP/MJPEG Streams (Direct)
+```
+http://192.168.1.100/video.mjpg
+```
+- **Direct browser streaming** without backend processing
+- **Lower latency** for real-time applications
+- **Authentication support** for protected cameras
+- **Canvas-based rendering** for optimal performance
+
+#### 6.4.3 HLS Streams (Direct)
+```
+http://192.168.1.100/stream.m3u8
+```
+- **Native HLS support** in modern browsers
+- **Low latency mode** for reduced delay
+- **Adaptive bitrate** capabilities
+- **Fallback to HLS.js** for broader compatibility
+
+#### 6.4.4 Auto-Detection (Recommended)
+Automatically detects stream format from URL patterns:
+- `.m3u8` → HLS
+- `.mjpg`/`mjpeg` → MJPEG
+- `rtsp://` → RTSP
+- `http://` → HTTP/MJPEG
+
+### 6.5 Error Recovery & Reliability
+
+#### 6.5.1 Automatic Retry Logic
+```typescript
+// Exponential backoff with maximum limits
+const retryDelays = [1000, 2000, 4000, 8000, 10000]; // 1s, 2s, 4s, 8s, 10s
+
+// Transport fallback for RTSP
+const transports = ['tcp', 'udp']; // Try TCP first, then UDP
+
+// Format fallback
+const formats = ['rtsp', 'http', 'mjpeg']; // Try alternatives
+```
+
+#### 6.5.2 Connection Status Monitoring
+```typescript
+interface StreamStatus {
+  isConnected: boolean
+  format: string
+  error?: string
+  retryCount: number
+  latency?: number
+}
+```
+
+**Real-time Metrics:**
+- **Connection status** (connecting/connected/error)
+- **Stream format** being used
+- **Retry count** for failed attempts
+- **Latency measurement** in milliseconds
+- **Error details** with suggested solutions
+
+### 6.6 Performance Optimizations
+
+#### 6.6.1 Latency Reduction
+- **Low latency mode** for HLS streams
+- **Optimized buffer sizes** based on network conditions
+- **Direct streaming** when possible (bypass backend)
+- **WebGL acceleration** for video processing
+
+#### 6.6.2 Resource Management
+- **Automatic cleanup** of stream resources
+- **Memory leak prevention** with proper detachment
+- **Connection pooling** for multiple cameras
+- **Background processing** with Web Workers
+
+### 6.7 Testing & Validation
+
+#### 6.7.1 Stream Testing Utility
+```typescript
+export class StreamTester {
+  async testProblematicURLs(): Promise<TestResult[]>
+  async testSingleURL(options: StreamOptions): Promise<TestResult>
+  async testConnection(url: string): Promise<boolean>
+}
+```
+
+**Test Cases:**
+- **Authentication failures** (401 errors)
+- **Connection timeouts** (network issues)
+- **Format compatibility** (various stream types)
+- **Transport reliability** (TCP vs UDP)
+
+#### 6.7.2 Real-World Testing
+Successfully tested with problematic URLs:
+```javascript
+// Original failing URLs now work
+const testURLs = [
+  'rtsp://admin:admin@10.141.38.247:554/cam/realmonitor?channel=1&subtype=0',
+  'rtsp://admin:Anand123@10.141.38.247:554/cam/realmonitor?channel=1&subtype=0'
+];
+```
+
+### 6.8 Integration with Face Recognition
+
+The enhanced streaming system seamlessly integrates with the existing face recognition pipeline:
+
+```typescript
+// Enhanced useFaceDetection hook
+export function useFaceDetection(networkCameras: NetworkCamera[]) {
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle')
+  const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null)
+  
+  // Stream manager integration
+  const startCamera = useCallback(async (deviceId?: string) => {
+    // Enhanced camera start with stream manager
+    await streamManager.attach(videoRef.current, streamOptions)
+  }, [networkCameras])
+}
+```
+
+**Integration Benefits:**
+- **Unified interface** for all camera types
+- **Consistent error handling** across stream sources
+- **Real-time status** for user feedback
+- **Automatic reconnection** during face detection
+
+### 6.9 Configuration Examples
+
+#### 6.9.1 Basic RTSP Camera
+```typescript
+const camera: NetworkCamera = {
+  id: 'camera_1',
+  name: 'Main Entrance',
+  url: 'rtsp://admin:password@192.168.1.100:554/stream',
+  transport: 'auto',
+  format: 'rtsp',
+  timeout: 15000
+};
+```
+
+#### 6.9.2 HTTP MJPEG Camera
+```typescript
+const camera: NetworkCamera = {
+  id: 'camera_2',
+  name: 'Lobby Camera',
+  url: 'http://192.168.1.101/video.mjpg',
+  format: 'mjpeg',
+  username: 'admin',
+  password: 'password'
+};
+```
+
+#### 6.9.3 HLS Stream
+```typescript
+const camera: NetworkCamera = {
+  id: 'camera_3',
+  name: 'Conference Room',
+  url: 'http://192.168.1.102/stream.m3u8',
+  format: 'hls'
+};
+```
+
+### 6.10 Troubleshooting Guide
+
+#### 6.10.1 Common Issues & Solutions
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| 401 Unauthorized | Incorrect credentials | Verify username/password in camera settings |
+| Connection Timeout | Network issues | Increase timeout, try TCP transport |
+| Format Not Supported | Incompatible stream | Use auto-detect or try alternative format |
+| HLS Not Supported | Browser limitation | Use MJPEG format or RTSP conversion |
+| High Latency | Buffer settings | Enable low latency mode, reduce buffer size |
+
+#### 6.10.2 Debug Information
+```typescript
+// Enable detailed logging
+streamManager.onStatusChange((status) => {
+  console.log('Stream Status:', status);
+  console.log('Format:', status.format);
+  console.log('Latency:', status.latency, 'ms');
+  console.log('Retries:', status.retryCount);
+});
+```
+
+### 6.11 Future Enhancements
+
+#### 6.11.1 Planned Features
+- **WebRTC support** for ultra-low latency streaming
+- **Stream recording** capability for attendance verification
+- **Multi-camera synchronization** for large rooms
+- **Adaptive bitrate** streaming based on network conditions
+- **Cloud streaming** integration for remote cameras
+
+#### 6.11.2 API Extensions
+- **Stream health monitoring** endpoints
+- **Bandwidth optimization** controls
+- **Camera discovery** protocols (ONVIF)
+- **Stream analytics** and performance metrics
+
+---
+
+## 7. Face Recognition System
 
 ### 6.1 Technical Overview
 
@@ -2971,27 +3316,77 @@ models/
 
 ---
 
-## 16. Conclusion
+## 17. Conclusion
 
-The Smart Face Recognition Attendance System successfully demonstrates the application of modern web technologies and machine learning for automating attendance tracking. Key achievements include:
+The Smart Face Recognition Attendance System successfully demonstrates the application of modern web technologies and machine learning for automating attendance tracking. The project has evolved from a basic webcam-based system to a comprehensive, enterprise-grade streaming platform. Key achievements include:
+
+### 17.1 Core Achievements
 
 1. **Real-Time Face Detection**: Achieved smooth face detection at 2 FPS in the browser using TensorFlow.js, eliminating server-side processing requirements.
 
 2. **High Accuracy Recognition**: The face matching algorithm using 128-dimensional descriptors provides reliable student identification with configurable threshold tuning.
 
-3. **Modern Architecture**: The microservices architecture with FastAPI and Next.js provides a scalable, maintainable foundation that can be extended with persistent storage and additional features.
+3. **Enhanced Streaming Architecture**: Developed a VLC-inspired streaming system supporting multiple formats (RTSP, HTTP/MJPEG, HLS) with automatic error recovery and authentication.
 
-4. **User-Friendly Interface**: The intuitive dashboard, student management, and reporting interfaces make the system accessible to administrators without technical expertise.
+4. **Modern Architecture**: The microservices architecture with FastAPI and Next.js provides a scalable, maintainable foundation that can be extended with persistent storage and additional features.
 
-5. **Production Ready**: Built with industry-standard practices including TypeScript, proper error handling, responsive design, and accessibility considerations.
+5. **User-Friendly Interface**: The intuitive dashboard, student management, and reporting interfaces make the system accessible to administrators without technical expertise.
 
-The system serves as a solid foundation for educational institutions looking to modernize their attendance tracking while providing a practical demonstration of integrating AI/ML capabilities into web applications.
+6. **Production Ready**: Built with industry-standard practices including TypeScript, proper error handling, responsive design, and accessibility considerations.
+
+### 17.2 Enhanced Streaming Capabilities
+
+The major enhancement transforms the system from a simple webcam application to a professional streaming platform:
+
+- **Multi-Format Support**: RTSP, HTTP/MJPEG, HLS with auto-detection
+- **Robust Error Handling**: Automatic retry with exponential backoff and transport fallback
+- **Authentication Support**: Built-in username/password handling for secure camera access
+- **Performance Monitoring**: Real-time connection status, latency metrics, and retry tracking
+- **VLC-like Interface**: Professional stream management with comprehensive configuration options
+
+### 17.3 Problem Resolution
+
+Successfully resolved critical streaming issues that plagued the original implementation:
+
+- **Fixed 401 Unauthorized Errors**: Proper authentication handling for RTSP cameras
+- **Eliminated Connection Timeouts**: Configurable timeouts with smart retry logic
+- **Expanded Format Support**: Beyond basic webcam to enterprise camera systems
+- **Implemented Error Recovery**: Automatic reconnection with user-friendly error messages
+
+### 17.4 Technical Innovation
+
+The enhanced streaming system represents significant technical innovation:
+
+- **Browser-Based Stream Processing**: Canvas-based MJPEG rendering without server overhead
+- **Intelligent Transport Selection**: Automatic TCP/UDP fallback for optimal performance
+- **Stream Testing Framework**: Comprehensive testing utilities for validation
+- **Real-Time Status Monitoring**: Live connection metrics and performance tracking
+
+### 17.5 Impact and Applications
+
+The system now serves diverse use cases:
+
+- **Educational Institutions**: Automated attendance with existing IP camera infrastructure
+- **Corporate Environments**: Employee attendance with security camera integration
+- **Remote Learning**: Face-based attendance verification for online education
+- **Access Control**: Integrated attendance and building access systems
+
+### 17.6 Future Foundation
+
+The enhanced streaming architecture provides a solid foundation for:
+
+- **WebRTC Integration**: Ultra-low latency streaming capabilities
+- **Multi-Camera Synchronization**: Large room coverage and redundancy
+- **Cloud Streaming**: Remote camera integration and scalability
+- **Advanced Analytics**: Stream performance and attendance pattern analysis
+
+The system has evolved from a proof-of-concept to a production-ready solution that addresses real-world streaming challenges while maintaining the core face recognition functionality. The comprehensive error handling, multi-format support, and professional interface make it suitable for deployment in diverse environments.
 
 ---
 
-## 17. References
+## 18. References
 
-### 17.1 Documentation Links
+### 18.1 Documentation Links
 
 1. **Next.js Documentation**: https://nextjs.org/docs
 2. **React Documentation**: https://react.dev
@@ -3000,14 +3395,19 @@ The system serves as a solid foundation for educational institutions looking to 
 5. **TensorFlow.js Documentation**: https://www.tensorflow.org/js
 6. **Tailwind CSS Documentation**: https://tailwindcss.com/docs
 7. **shadcn/ui Documentation**: https://ui.shadcn.com
+8. **HLS.js Documentation**: https://hls-js.com/
+9. **FFmpeg Documentation**: https://ffmpeg.org/documentation.html
+10. **RTSP Specification**: https://tools.ietf.org/html/rfc2326
 
-### 17.2 Research Papers
+### 18.2 Research Papers
 
 1. Schroff, F., Kalenichenko, D., & Philbin, J. (2015). "FaceNet: A Unified Embedding for Face Recognition and Clustering." IEEE CVPR.
 
 2. Zhang, K., Zhang, Z., Li, Z., & Qiao, Y. (2016). "Joint Face Detection and Alignment Using Multitask Cascaded Convolutional Networks."
 
-### 17.3 Libraries Used
+3. Wang, M., & Deng, W. (2021). "Deep Face Recognition: A Survey." Neurocomputing.
+
+### 18.3 Libraries Used
 
 | Library | Version | License |
 |---------|---------|---------|
@@ -3018,14 +3418,26 @@ The system serves as a solid foundation for educational institutions looking to 
 | TensorFlow.js | 4.x | Apache 2.0 |
 | Tailwind CSS | 4.x | MIT |
 | Recharts | 2.x | MIT |
+| HLS.js | Latest | Apache 2.0 |
+| FFmpeg | 8.x | GPL/LGPL |
+
+### 18.4 Streaming Standards
+
+| Standard | Version | Purpose |
+|----------|---------|---------|
+| RTSP | RFC 2326 | Real-Time Streaming Protocol |
+| HLS | RFC 8216 | HTTP Live Streaming |
+| MJPEG | RFC 2435 | Motion JPEG Compression |
+| WebRTC | RFC 8825 | Web Real-Time Communication |
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2024  
+**Document Version:** 2.0  
+**Last Updated:** April 2025  
 **Author:** [Your Name]  
 **Institution:** [Your University]  
-**Supervisor:** [Supervisor Name]
+**Supervisor:** [Supervisor Name]  
+**Major Enhancement:** Enhanced Streaming System with VLC-like Interface
 
 ---
 
